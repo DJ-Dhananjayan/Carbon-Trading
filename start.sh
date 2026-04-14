@@ -1,15 +1,16 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════
-#  GREEN COINS — One-Command Launcher
+#  GREEN COINS — Smart Launcher
+#  Rebuilds images only when source code changes.
 #  Run: chmod +x start.sh && ./start.sh
 # ═══════════════════════════════════════════════
-
-set -e
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
+
+HASH_FILE=".build_hash"
 
 echo -e "${GREEN}"
 echo "  ╔══════════════════════════════════════╗"
@@ -44,25 +45,49 @@ fi
 echo -e "${BLUE}✓ Docker Compose found${NC}"
 echo ""
 
-# Stop any existing containers
+# ── Smart Rebuild Detection ─────────────────────────────────────────
+# Hash all source files that affect Docker build layers
+CURRENT_HASH=$(find ./frontend/src ./frontend/package.json \
+    ./backend/src ./backend/package.json \
+    ./blockchain ./blockchain/package.json \
+    ./ml-service/requirements.txt ./ml-service/main.py \
+    -type f 2>/dev/null | sort | xargs md5 2>/dev/null | md5)
+
+NEEDS_BUILD=false
+if [ ! -f "$HASH_FILE" ]; then
+    echo -e "${YELLOW}🔨 First run — building all images (this takes a few minutes)...${NC}"
+    NEEDS_BUILD=true
+elif [ "$(cat $HASH_FILE)" != "$CURRENT_HASH" ]; then
+    echo -e "${YELLOW}🔨 Source code changed — rebuilding affected images...${NC}"
+    NEEDS_BUILD=true
+else
+    echo -e "${GREEN}⚡ No source changes detected — skipping rebuild (fast start!)${NC}"
+fi
+
+echo ""
+
+# ── Start Services ──────────────────────────────────────────────────
 echo -e "${BLUE}🔄 Stopping any existing containers...${NC}"
 $COMPOSE down 2>/dev/null || true
 
-# Build and start
 echo ""
-echo -e "${GREEN}🚀 Building and starting all services...${NC}"
-echo -e "${BLUE}   This may take a few minutes on first run.${NC}"
-echo ""
-
-$COMPOSE up --build -d
+if [ "$NEEDS_BUILD" = true ]; then
+    echo -e "${GREEN}🚀 Building and starting all services...${NC}"
+    $COMPOSE up --build -d
+    # Save hash after successful build
+    echo "$CURRENT_HASH" > "$HASH_FILE"
+else
+    echo -e "${GREEN}🚀 Starting all services (using cached images)...${NC}"
+    $COMPOSE up -d
+fi
 
 echo ""
 echo -e "${GREEN}═══════════════════════════════════════════${NC}"
 echo -e "${GREEN}  ✅ GREEN COINS is running!${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════${NC}"
 echo ""
-echo -e "  ${GREEN}🌐 Single Access Link:${NC}      http://localhost"
-echo -e "  ${BLUE}   (Frontend + API + MinIO)${NC}"
+echo -e "  ${GREEN}🌐 Open this link:${NC}"
+echo -e "  ${BLUE}  ➜  http://localhost${NC}"
 echo ""
 echo -e "  ${YELLOW}Government Login:${NC}"
 echo -e "    Email:    admin@greencoins.gov"
@@ -75,19 +100,25 @@ echo -e "  ${YELLOW}To view logs:${NC}      $COMPOSE logs -f"
 echo -e "  ${YELLOW}To stop:${NC}           $COMPOSE down"
 echo ""
 
-# Wait and show health
+# ── Health Checks ───────────────────────────────────────────────────
 echo -e "${BLUE}⏳ Waiting for services to be ready...${NC}"
-sleep 10
+sleep 8
 
 echo ""
 echo -e "${BLUE}Service health checks:${NC}"
 
 check_service() {
-    if curl -sf "$2" > /dev/null 2>&1; then
-        echo -e "  ${GREEN}✅ $1${NC}"
-    else
-        echo -e "  ${YELLOW}⏳ $1 (still starting...)${NC}"
-    fi
+    local retries=5
+    local i=0
+    while [ $i -lt $retries ]; do
+        if curl -sf "$2" > /dev/null 2>&1; then
+            echo -e "  ${GREEN}✅ $1${NC}"
+            return
+        fi
+        sleep 3
+        i=$((i+1))
+    done
+    echo -e "  ${YELLOW}⏳ $1 (still starting — refresh in a moment)${NC}"
 }
 
 check_service "Gateway (Main)" "http://localhost"

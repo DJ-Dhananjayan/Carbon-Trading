@@ -1,0 +1,114 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: greencoins
+      POSTGRES_USER: greencoins
+      POSTGRES_PASSWORD: greencoins_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U greencoins" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # MongoDB (Logs)
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # MinIO (S3-compatible storage)
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  # Blockchain Service
+  blockchain:
+    image: djinspiron/greencoins-blockchain:latest
+    ports:
+      - "4000:4000"
+
+  # Backend (Express.js)
+  backend:
+    image: djinspiron/greencoins-backend:latest
+    ports:
+      - "5001:5000"
+    environment:
+      PORT: 5000
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: greencoins
+      POSTGRES_USER: greencoins
+      POSTGRES_PASSWORD: greencoins_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MONGO_URI: mongodb://mongo:27017/greencoins_logs
+      JWT_SECRET: greencoins_dev_jwt_secret_2024
+      RAZORPAY_KEY_ID: rzp_test_placeholder
+      RAZORPAY_KEY_SECRET: placeholder_secret
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_BUCKET: greencoins
+      BLOCKCHAIN_SERVICE_URL: http://blockchain:4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      mongo:
+        condition: service_started
+      minio:
+        condition: service_started
+      blockchain:
+        condition: service_started
+
+  # Frontend (React)
+  frontend:
+    image: djinspiron/greencoins-frontend:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  # Nginx Gateway
+  gateway:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+      - minio
+
+volumes:
+  postgres_data:
+  redis_data:
+  mongo_data:
+  minio_data:
