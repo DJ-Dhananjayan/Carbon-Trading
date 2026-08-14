@@ -517,7 +517,7 @@ Dashboard
 
 ## 👨‍💻 Author
 
-**Dhananjayan A**
+**Dhananjayan S**
 
 AI & Data Science Engineer
 
